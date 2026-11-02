@@ -2184,7 +2184,13 @@ pub static QODER: IntegrationSpec = IntegrationSpec {
     // Idle composer placeholder, or the `? for shortcuts` footer hint. The
     // hint is sometimes replaced by a banner (e.g. credits exhausted), so
     // neither marker can stand alone.
-    ready_patterns: &["Type your message", "? for shortcuts"],
+    //
+    // The first two are English-only: a non-English UI (`ui.language`) renders
+    // them translated, so they never match and the PTY wake stays gated shut
+    // forever. `@path/to/file` is the untranslated tail of the same idle
+    // placeholder row in every locale, and it disappears as soon as the user
+    // types or a modal replaces the composer.
+    ready_patterns: &["Type your message", "? for shortcuts", "@path/to/file"],
     pty: PtySpec {
         delivery_start_timeout_secs: 60,
         console_input: ConsoleInput::Vt,

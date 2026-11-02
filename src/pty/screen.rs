@@ -202,6 +202,18 @@ fn is_dash_rule(line: &str) -> bool {
     trimmed.chars().count() >= 3 && trimmed.chars().all(|c| c == '─')
 }
 
+/// A dash rule that may carry a tab title after the dashes, as Qoder draws the
+/// top edge of a framed box (`────…─ Implementation ─`).
+fn is_titled_dash_rule(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.chars().count() >= 3
+        && trimmed.starts_with('─')
+        && trimmed.chars().filter(|c| *c == '─').count() >= 3
+}
+
+/// Tail of Qoder's idle composer placeholder, untranslated in every UI language.
+const PLACEHOLDER_SUFFIX: &str = "@path/to/file";
+
 /// Check if a line is a Gemini dash border (all ─ chars, at least 20 wide)
 fn is_dash_border(line: &str) -> bool {
     let trimmed = line.trim();
@@ -1243,35 +1255,45 @@ impl ScreenTracker {
     /// ```
     ///
     /// A submitted prompt is echoed in the scrollback with the same ` > ` prefix,
-    /// so anchor to the last non-empty row (the status footer), require the rule
-    /// directly above it, and read the rows between that rule and the one above.
-    /// No framed composer (an approval or trust prompt, a menu) is `None`, which
-    /// callers treat as "not safe to inject".
+    /// so anchor on the status footer and the pure rule above it, then take the
+    /// nearest rule above whose next row carries the composer marker. No framed
+    /// composer (an approval or trust prompt, a menu) is `None`, which callers
+    /// treat as "not safe to inject".
     fn get_qoder_input_text(&self) -> Option<String> {
-        const PLACEHOLDER: &str = "Type your message or @path/to/file";
         let lines = self.get_screen_lines();
         let status = lines.iter().rposition(|line| !line.trim().is_empty())?;
         let bottom = status.checked_sub(1)?;
         if !is_dash_rule(&lines[bottom]) || is_dash_rule(&lines[status]) {
             return None;
         }
-        let top = (bottom.saturating_sub(12)..bottom)
-            .rev()
-            .find(|&row| is_dash_rule(&lines[row]))?;
-        let first = lines.get(top + 1)?.trim_start().strip_prefix('>')?;
-        if top + 1 >= bottom {
-            return None;
+        // The rule closing the box above can carry a tab title
+        // (`────…─ Implementation ─`), so it is not a pure rule row and the
+        // nearest pure rule can belong to the banner above the composer. Walk
+        // the candidate rules bottom-up and take the first one whose next row
+        // starts with the composer marker: `>` normally, `*` in auto-approve
+        // mode. That marker is what tells the composer box from anything above.
+        for top in (bottom.saturating_sub(12)..bottom).rev() {
+            if top + 1 >= bottom || !is_titled_dash_rule(&lines[top]) {
+                continue;
+            }
+            let marker = lines[top + 1].trim_start();
+            let Some(rest) = marker.strip_prefix('>').or_else(|| marker.strip_prefix('*')) else {
+                continue;
+            };
+            let mut text = vec![trim_with_nbsp(rest).to_string()];
+            for line in &lines[top + 2..bottom] {
+                text.push(trim_with_nbsp(line).to_string());
+            }
+            let text = text.join("\n").trim().to_string();
+            // Only the tail of the placeholder is locale-independent, so
+            // emptiness is decided on that instead of the English sentence.
+            return Some(if text.ends_with(PLACEHOLDER_SUFFIX) {
+                String::new()
+            } else {
+                text
+            });
         }
-        let mut text = vec![trim_with_nbsp(first).to_string()];
-        for line in &lines[top + 2..bottom] {
-            text.push(trim_with_nbsp(line).to_string());
-        }
-        let text = text.join("\n").trim().to_string();
-        Some(if text == PLACEHOLDER {
-            String::new()
-        } else {
-            text
-        })
+        None
     }
 
     /// Check and perform periodic dump if 5 seconds elapsed
@@ -2345,6 +2367,38 @@ mod tests {
         assert_eq!(t.get_qoder_input_text().as_deref(), Some(""));
         assert!(t.is_prompt_empty("qoder"));
         assert!(t.is_ready());
+    }
+
+    #[test]
+    fn qoder_zh_cn_yolo_composer_is_empty_and_ready() {
+        // A zh-CN UI translates the placeholder and the footer hint, Qoder draws
+        // `*` instead of `>` in auto-approve mode, and the composer's top rule
+        // carries a tab title so it is not a pure rule row.
+        let t = qoder_screen(&[
+            "   源库只读未动。",
+            "                                                            按 ? 查看快捷键",
+            QODER_RULE,
+            " YOLO 按 Shift+Tab 切换到自动模式",
+            "─────────────────────────────── Download First Implementation ─",
+            " *   输入消息或 @path/to/file",
+            QODER_RULE,
+            " DeepSeek-Flash 模型 · 上下文 ▓▓▓░░░░░░░ 29% · ~/demo",
+        ]);
+        assert_eq!(t.get_qoder_input_text().as_deref(), Some(""));
+        assert!(t.is_prompt_empty("qoder"));
+        assert!(t.is_ready(), "localized UI must still read as ready");
+    }
+
+    #[test]
+    fn qoder_yolo_marker_with_typed_text_is_not_empty() {
+        let t = qoder_screen(&[
+            "─────────────────────────────────────────────────────── Some Tab Title ─",
+            " *   回信给 gobi",
+            QODER_RULE,
+            QODER_STATUS,
+        ]);
+        assert_eq!(t.get_qoder_input_text().as_deref(), Some("回信给 gobi"));
+        assert!(!t.is_prompt_empty("qoder"));
     }
 
     #[test]
