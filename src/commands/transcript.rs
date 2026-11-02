@@ -1702,10 +1702,11 @@ View transport messages with: hcom events --remote-fetch --device ABCD --partici
             ("/home/user/.omp/agent/sessions/x/20260603_abc.jsonl", "omp"),
             ("/home/user/.hermes/state.db", "hermes"),
         ];
-        let expected: std::collections::HashSet<&str> =
-            crate::integration_spec::released_tool_names()
-                .into_iter()
-                .collect();
+        let expected: std::collections::HashSet<&str> = crate::integration_spec::ALL
+            .iter()
+            .filter(|spec| spec.released && !spec.cli_binary.is_empty())
+            .map(|spec| spec.name)
+            .collect();
         let actual: std::collections::HashSet<&str> = cases
             .iter()
             .map(|(path, expected_tool)| {

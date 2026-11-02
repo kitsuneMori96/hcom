@@ -46,7 +46,10 @@ fn is_command(name: &str) -> bool {
 }
 
 fn is_launch_tool(name: &str) -> bool {
-    matches!(name, "f" | "r") || name.parse::<Tool>().is_ok_and(|tool| tool.spec().released)
+    matches!(name, "f" | "r")
+        || name
+            .parse::<Tool>()
+            .is_ok_and(|tool| tool.spec().released && !tool.spec().cli_binary.is_empty())
 }
 
 fn released_tool_names() -> Vec<&'static str> {
@@ -154,6 +157,10 @@ fn dispatch_hook_for_tool(tool: Tool, hook: &str, args: &[String]) -> (i32, Stri
         ),
         Tool::Qoder => (
             crate::hooks::qoder::dispatch_qoder_hook_native(hook),
+            String::new(),
+        ),
+        Tool::QoderDesktop => (
+            crate::hooks::qoder_desktop::dispatch_qoder_desktop_hook(hook),
             String::new(),
         ),
         Tool::Grok | Tool::Adhoc => unreachable!("{} has no hooks", tool.as_str()),
@@ -1164,8 +1171,10 @@ mod tests {
     fn launch_tools_covers_every_released_spec() {
         // Launch recognition is derived from canonical Tool parsing; every
         // released canonical name and alias must therefore route automatically.
+        // Hook-only integrations (empty cli_binary) are deliberately not
+        // launch-routed: `hcom <name>` is not a command for them.
         for spec in crate::integration_spec::ALL {
-            if !spec.released {
+            if !spec.released || spec.cli_binary.is_empty() {
                 continue;
             }
             assert!(

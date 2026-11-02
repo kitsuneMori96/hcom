@@ -21,6 +21,9 @@ pub enum Tool {
     Kimi,
     Copilot,
     Qoder,
+    /// Qoder Desktop (GUI app) sessions joining hcom through the persistent
+    /// asyncRewake Stop hook; never launched by hcom itself.
+    QoderDesktop,
     Grok,
     Pi,
     Omp,
@@ -136,6 +139,10 @@ impl Tool {
             ),
             Tool::Cursor => persistent(installed(), crate::hooks::cursor::remove_cursor_hooks),
             Tool::Kimi => persistent(installed(), crate::hooks::kimi::remove_kimi_hooks),
+            Tool::QoderDesktop => persistent(
+                installed(),
+                crate::hooks::qoder_desktop::remove_qoder_desktop_hooks,
+            ),
             Tool::Adhoc => Err(String::new()),
         }
     }
@@ -154,7 +161,7 @@ impl Tool {
     /// Persistent hook operations are registered together so verify, setup and
     /// diagnostics cannot disagree about which tools have a global install.
     pub(crate) fn hook_installer(&self) -> Option<HookInstaller> {
-        use crate::hooks::{antigravity, cursor, gemini, hermes, kimi};
+        use crate::hooks::{antigravity, cursor, gemini, hermes, kimi, qoder_desktop};
         Some(match self {
             Tool::Gemini => HookInstaller {
                 verify: gemini::verify_gemini_hooks_installed,
@@ -175,6 +182,16 @@ impl Tool {
                 verify: kimi::verify_kimi_hooks_installed,
                 setup: |p| kimi::try_setup_kimi_hooks(p).map_err(|e| e.to_string()),
                 settings_path: kimi::get_kimi_settings_path,
+            },
+            // Qoder Desktop: one persistent Stop hook in ~/.qoder/settings.json.
+            // hcom grants the Desktop app no permission entries, so the
+            // auto-approve flag is ignored on both verify and setup.
+            Tool::QoderDesktop => HookInstaller {
+                verify: |_| qoder_desktop::verify_qoder_desktop_hooks_installed(),
+                setup: |_| {
+                    qoder_desktop::try_setup_qoder_desktop_hooks().map_err(|e| e.to_string())
+                },
+                settings_path: qoder_desktop::get_qoder_desktop_settings_path,
             },
             // Hermes has its own approval system; hcom grants no permissions.
             Tool::Hermes => HookInstaller {

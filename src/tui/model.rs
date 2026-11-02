@@ -121,11 +121,12 @@ impl AgentTool {
     }
 }
 
-/// Tools the launch panel cycles through, in spec order.
+/// Tools the launch panel cycles through, in spec order. Hook-only
+/// integrations (no terminal binary) are excluded.
 fn launchable_tools() -> impl DoubleEndedIterator<Item = Tool> + Clone {
     crate::integration_spec::ALL
         .iter()
-        .filter(|spec| spec.released && spec.tool != Tool::Adhoc)
+        .filter(|spec| spec.released && !spec.cli_binary.is_empty())
         .map(|spec| spec.tool)
 }
 

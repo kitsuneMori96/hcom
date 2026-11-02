@@ -753,7 +753,7 @@ mod tests {
             seen.push(profile.tool);
         }
         for spec in crate::integration_spec::ALL {
-            if spec.released {
+            if spec.released && !spec.cli_binary.is_empty() {
                 assert!(
                     profile_for_tool(spec.tool).is_some(),
                     "missing transcript profile for {}",

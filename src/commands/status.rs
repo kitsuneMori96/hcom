@@ -62,6 +62,11 @@ fn is_tool_installed(tool: crate::tool::Tool) -> bool {
     match tool {
         crate::tool::Tool::Antigravity => is_antigravity_installed(),
         crate::tool::Tool::Adhoc => false,
+        // The Desktop app ships no PATH binary; its settings file marks it
+        // present (hooks add writes into the same file).
+        crate::tool::Tool::QoderDesktop => {
+            crate::hooks::qoder_desktop::get_qoder_desktop_settings_path().is_file()
+        }
         // Same lookup the launcher uses (PATH, then per-user install dirs).
         _ => crate::terminal::which_bin(tool.spec().cli_binary).is_some(),
     }

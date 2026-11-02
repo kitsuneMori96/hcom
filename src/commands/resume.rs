@@ -1749,6 +1749,8 @@ fn extract_cwd_from_transcript(path: &str, tool: Tool) -> Option<String> {
         }),
         // Found through their own session stores, not a transcript path.
         Tool::OpenCode | Tool::Kilo | Tool::Hermes | Tool::Adhoc => None,
+        // Not terminal-launched; no resume relaunch exists for it.
+        Tool::QoderDesktop => None,
     }
 }
 

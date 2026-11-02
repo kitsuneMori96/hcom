@@ -17,6 +17,7 @@ pub mod pi;
 pub(crate) mod pi_family;
 pub(crate) mod plugin_rpc;
 pub mod qoder;
+pub mod qoder_desktop;
 pub mod runtime;
 pub mod utils;
 

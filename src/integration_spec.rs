@@ -426,6 +426,8 @@ const QODER_HOOKS: &[&str] = &[
     "qoder-sessionend",
 ];
 
+const QODER_DESKTOP_HOOKS: &[&str] = &["qoder-desktop-stop"];
+
 const COPILOT_HOOKS: &[&str] = &[
     "copilot-sessionstart",
     "copilot-userpromptsubmit",
@@ -2246,6 +2248,76 @@ pub static QODER: IntegrationSpec = IntegrationSpec {
     },
 };
 
+/// Qoder Desktop (the GUI app), not terminal-launched: the app itself runs the
+/// agents. hcom joins a Desktop session through one persistent hook installed
+/// into `~/.qoder/settings.json` — a Stop hook with `asyncRewake`, whose hcom
+/// watcher exits 2 with the incoming mail on stderr, waking the idle model.
+pub static QODER_DESKTOP: IntegrationSpec = IntegrationSpec {
+    tool: Tool::QoderDesktop,
+    name: "qoder-desktop",
+    label: "Qoder Desktop",
+    aliases: &[],
+    // No terminal binary: `hcom qoder-desktop` must not look like a launch.
+    cli_binary: "",
+    tui_prefix: "qds ",
+    adhoc_icon: None,
+    released: true,
+    // Wake is the rewake hook's exit-2 reminder, never PTY injection, so there
+    // is no composer to watch and readiness patterns do not apply.
+    ready_patterns: &[],
+    pty: PtySpec {
+        delivery_start_timeout_secs: 60,
+        console_input: ConsoleInput::Vt,
+        pre_enter_settle_ms: 0,
+    },
+    instance_state_env: &[],
+    detection: DetectionSpec {
+        // Set by the Desktop app for its hook processes and integrated
+        // terminals; the CLI never sets it.
+        markers: &[EnvPredicate::equals("QODER_SESSION_TYPE", "app")],
+        clear_for_child: &[],
+    },
+    hooks: HooksSpec {
+        names: QODER_DESKTOP_HOOKS,
+        shared_hooks_with: None,
+        invocation: HookInvocation::JsonStdin,
+    },
+    gates: GatesSpec {
+        require_idle: true,
+        require_ready_prompt: false,
+        require_prompt_empty: false,
+        block_on_user_activity: false,
+        block_on_approval: false,
+        launch_requires_ready: false,
+        launch_ready_on_plugin_bind: false,
+    },
+    launch: LaunchSpec {
+        args_env: None,
+        config_dir_env: None,
+        initial_prompt: InitialPromptShape::Unsupported {
+            reason: "Qoder Desktop sessions are created in the Desktop app, not launched by hcom",
+        },
+        uses_pty_default: false,
+        max_launch_count: 0,
+        background: BackgroundMode::Unsupported,
+    },
+    args: &ArgFlags::EMPTY,
+    resume: None,
+    help: HelpSpec {
+        unique_examples: &[],
+        extra_env: &[],
+        notes: &[
+            "Install with: hcom hooks add qoder-desktop (Stop hook in ~/.qoder/settings.json).",
+            "An idle Desktop agent wakes when hcom mail arrives; HCOM_REWAKE_WAIT caps the watch in seconds.",
+        ],
+    },
+    status_detail: StatusDetailSpec {
+        bash: &[],
+        file: &[],
+        delegate: &[],
+    },
+};
+
 pub static GROK: IntegrationSpec = IntegrationSpec {
     tool: Tool::Grok,
     name: "grok",
@@ -2384,6 +2456,7 @@ pub static ALL: &[&IntegrationSpec] = &[
     &KIMI,
     &COPILOT,
     &QODER,
+    &QODER_DESKTOP,
     &GROK,
     &ADHOC,
 ];
@@ -2405,6 +2478,7 @@ impl Tool {
             Tool::Kimi => &KIMI,
             Tool::Copilot => &COPILOT,
             Tool::Qoder => &QODER,
+            Tool::QoderDesktop => &QODER_DESKTOP,
             Tool::Grok => &GROK,
             Tool::Adhoc => &ADHOC,
         }
@@ -2565,16 +2639,21 @@ mod tests {
             if spec.tool == Tool::Adhoc {
                 continue;
             }
-            assert!(
-                forward.contains(&spec.tool),
-                "{}: missing from next TUI cycle",
-                spec.name
-            );
-            assert!(
-                backward.contains(&spec.tool),
-                "{}: missing from prev TUI cycle",
-                spec.name
-            );
+            // Terminal launchability (a binary plus a launch panel slot) is
+            // what the TUI cycle covers; Qoder Desktop is a hook-only
+            // integration with neither.
+            if !spec.cli_binary.is_empty() {
+                assert!(
+                    forward.contains(&spec.tool),
+                    "{}: missing from next TUI cycle",
+                    spec.name
+                );
+                assert!(
+                    backward.contains(&spec.tool),
+                    "{}: missing from prev TUI cycle",
+                    spec.name
+                );
+            }
             assert_eq!(
                 detect_tool(&HashMap::from([(
                     "HCOM_TOOL".to_string(),
@@ -2597,6 +2676,7 @@ mod tests {
                 Tool::Gemini | Tool::Antigravity | Tool::Cursor | Tool::Kimi | Tool::Hermes => {
                     false
                 }
+                Tool::QoderDesktop => false,
                 Tool::Adhoc => unreachable!(),
             };
             let per_run = crate::hooks::runtime::adapter(spec.tool).is_some();
@@ -2616,7 +2696,9 @@ mod tests {
 
     #[test]
     fn resume_flag_tables_are_canonical() {
-        for spec in ALL.iter().filter(|s| s.tool != Tool::Adhoc) {
+        // Only terminal-launchable tools resume by relaunching a CLI; Adhoc and
+        // hook-only integrations (Qoder Desktop) have no resume path.
+        for spec in ALL.iter().filter(|s| !s.cli_binary.is_empty()) {
             let resume = spec
                 .resume
                 .as_ref()
@@ -2758,7 +2840,8 @@ mod tests {
         assert!(names.contains(&"grok"));
         assert!(names.contains(&"omp"));
         assert!(names.contains(&"hermes"));
-        assert_eq!(names.len(), 14);
+        assert!(names.contains(&"qoder-desktop"));
+        assert_eq!(names.len(), 15);
     }
 
     #[test]
@@ -2785,6 +2868,10 @@ mod tests {
         assert!(!CLAUDE.launch.uses_pty_default);
         for spec in ALL {
             if spec.tool == Tool::Claude || spec.tool == Tool::Adhoc {
+                continue;
+            }
+            if spec.cli_binary.is_empty() {
+                // Hook-only integration: hcom never attaches a PTY to it.
                 continue;
             }
             assert!(
@@ -2834,6 +2921,17 @@ mod tests {
             if !spec.released {
                 continue;
             }
+            if spec.cli_binary.is_empty() {
+                // Documented opt-out for hook-only integrations (Qoder
+                // Desktop): hcom neither launches nor resumes them, so
+                // neither requirement applies.
+                assert!(
+                    spec.resume.is_none(),
+                    "hook-only tool {} must not define a resume spec",
+                    spec.name
+                );
+                continue;
+            }
             assert!(
                 !spec.cli_binary.is_empty(),
                 "released tool {} must have a cli_binary",
@@ -2850,7 +2948,7 @@ mod tests {
     #[test]
     fn max_launch_count_only_zero_for_unreleased() {
         for spec in ALL {
-            if spec.released {
+            if spec.released && !spec.cli_binary.is_empty() {
                 assert!(
                     spec.launch.max_launch_count > 0,
                     "released tool {} must have max_launch_count > 0",
@@ -2868,7 +2966,7 @@ mod tests {
         assert_eq!(released_background_tool_names(), vec!["claude"]);
         assert_eq!(CLAUDE.launch.max_launch_count, 100);
         for spec in ALL {
-            if spec.tool != Tool::Claude && spec.released {
+            if spec.tool != Tool::Claude && spec.released && !spec.cli_binary.is_empty() {
                 assert_eq!(
                     spec.launch.max_launch_count, 10,
                     "{} should match the non-background cap of 10",
@@ -3019,9 +3117,10 @@ mod tests {
     fn drift_released_tools_have_background_mode() {
         // Every released tool must declare a background mode other than
         // Unsupported. Unsupported is reserved for Adhoc, which is never
-        // launched through `hcom [N] <tool>`.
+        // launched through `hcom [N] <tool>`, and for hook-only integrations
+        // (empty cli_binary), which hcom never launches at all.
         for spec in ALL {
-            if spec.released {
+            if spec.released && !spec.cli_binary.is_empty() {
                 assert_ne!(
                     spec.launch.background,
                     BackgroundMode::Unsupported,
@@ -3066,9 +3165,11 @@ mod tests {
                     );
                 }
                 BackgroundMode::Unsupported => {
-                    unreachable!(
-                        "released tools handled by drift_released_tools_have_background_mode"
-                    )
+                    assert!(
+                        spec.cli_binary.is_empty(),
+                        "released tool {} with Unsupported background must be hook-only",
+                        spec.name
+                    );
                 }
             }
         }
@@ -3079,6 +3180,16 @@ mod tests {
         use crate::commands::help::COMMAND_NAMES;
         for spec in ALL {
             if !spec.released {
+                continue;
+            }
+            if spec.cli_binary.is_empty() {
+                // Hook-only integrations have no `hcom <tool>` command, so
+                // they must not appear in COMMAND_NAMES.
+                assert!(
+                    !COMMAND_NAMES.contains(&spec.name),
+                    "hook-only tool {} must not be a launch command",
+                    spec.name
+                );
                 continue;
             }
             assert!(

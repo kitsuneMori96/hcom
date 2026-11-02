@@ -195,7 +195,7 @@ mod tests {
     fn known_model_overrides_apply_to_every_launchable_tool() {
         for spec in crate::integration_spec::ALL
             .iter()
-            .filter(|spec| spec.tool != Tool::Adhoc)
+            .filter(|spec| !spec.cli_binary.is_empty())
         {
             assert_eq!(
                 override_args(spec.tool, &s(&["--model", "default"]), &s(&["--model=new"])),

@@ -146,6 +146,7 @@ pub fn adapter(tool: Tool) -> Option<&'static PerRunAdapter> {
         | Tool::Kimi
         | Tool::Antigravity
         | Tool::Hermes
+        | Tool::QoderDesktop
         | Tool::Adhoc => None,
     }
 }

@@ -2434,7 +2434,7 @@ pub fn launch(db: &HcomDb, mut params: LaunchParams) -> Result<LaunchResult> {
 /// Validate tool args (pure parsing, no mutation).
 pub(crate) fn validate_tool_args(tool: &LaunchTool, args: &[String]) -> Vec<String> {
     match tool.tool() {
-        Tool::Claude | Tool::Codex | Tool::Adhoc => Vec::new(),
+        Tool::Claude | Tool::Codex | Tool::Adhoc | Tool::QoderDesktop => Vec::new(),
         Tool::Gemini => validate_rejected_args("Gemini", "hcom gemini", args, GEMINI_REJECTED_ARGS),
         Tool::Cursor => crate::tools::cursor_preprocessing::validate_cursor_args(args),
         Tool::Kimi => validate_rejected_args("Kimi", "hcom kimi", args, KIMI_REJECTED_ARGS),

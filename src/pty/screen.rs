@@ -791,6 +791,8 @@ impl ScreenTracker {
             // Grok: prompt-empty gate uses generic scrape when available; no
             // tool-specific VT100 input parser yet.
             Ok(Tool::Grok) => None,
+            // Qoder Desktop has no PTY; wake delivery goes through the Stop hook.
+            Ok(Tool::QoderDesktop) => None,
             Ok(Tool::Adhoc) => None,
             Err(_) => None,
         }

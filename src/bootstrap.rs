@@ -338,7 +338,7 @@ fn get_active_instances(db: &HcomDb, exclude_name: &str) -> String {
 fn launch_tool_names() -> String {
     crate::integration_spec::ALL
         .iter()
-        .filter(|spec| spec.released)
+        .filter(|spec| spec.released && !spec.cli_binary.is_empty())
         .map(|spec| spec.name)
         .collect::<Vec<_>>()
         .join("|")

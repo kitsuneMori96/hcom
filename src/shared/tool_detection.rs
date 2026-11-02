@@ -54,6 +54,7 @@ pub static NATIVE_PRECEDENCE: &[Tool] = &[
     Tool::Kilo,
     Tool::Cursor,
     Tool::Kimi,
+    Tool::QoderDesktop,
     Tool::Qoder,
     Tool::Grok,
     Tool::Pi,
