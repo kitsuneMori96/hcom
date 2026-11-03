@@ -900,6 +900,11 @@ fn create_runner_script_windows(
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
     hcom_env.insert("HCOM_LAUNCHED".to_string(), "1".to_string());
+    // See the Unix runner: carry the caller's COLORTERM past the color-var
+    // strip for unmanaged ConPTY launches (main::pty_child_env).
+    if let Some(ct) = env.get("COLORTERM").filter(|v| !v.is_empty()) {
+        hcom_env.insert("HCOM_COLORTERM".to_string(), ct.clone());
+    }
     let env_block = terminal::build_env_string(&hcom_env, "powershell");
 
     // Non-HCOM ambient env (may carry secrets) goes through a private sidecar
@@ -1122,11 +1127,16 @@ pub fn create_runner_script(
     // The visible .sh only exports HCOM_* vars + PATH + cwd (minimal).
     // This avoids the sensitivity-classification heuristic entirely — no
     // secret ever lands in the 0755 world-readable script.
-    let hcom_env: HashMap<String, String> = env
+    let mut hcom_env: HashMap<String, String> = env
         .iter()
         .filter(|(k, _)| k.starts_with("HCOM_"))
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
+    // Survives the sidecar's color-var strip so `hcom pty` can restore it for
+    // unmanaged PTYs (see main::pty_child_env).
+    if let Some(ct) = env.get("COLORTERM").filter(|v| !v.is_empty()) {
+        hcom_env.insert("HCOM_COLORTERM".to_string(), ct.clone());
+    }
     let pane_identity_vars = if run_here {
         std::collections::HashSet::new()
     } else {

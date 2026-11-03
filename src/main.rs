@@ -293,6 +293,17 @@ fn pty_child_env() -> Vec<(String, String)> {
     if std::env::var_os("TERM").is_none() {
         env.push(("TERM".to_string(), "xterm-256color".to_string()));
     }
+    // An unmanaged PTY has no host terminal to declare color capability, and
+    // the runner strips inherited color vars, so the launcher captures the
+    // caller's COLORTERM into HCOM_COLORTERM for exactly this hop. A real
+    // pane's own COLORTERM (when present) wins over the captured value.
+    let colorterm = std::env::var("COLORTERM")
+        .or_else(|_| std::env::var("HCOM_COLORTERM"))
+        .ok()
+        .filter(|ct| !ct.is_empty());
+    if let Some(ct) = colorterm {
+        env.push(("COLORTERM".to_string(), ct));
+    }
     env
 }
 
@@ -348,5 +359,35 @@ mod tests {
     #[test]
     fn test_pty_child_env_marks_launched() {
         assert!(super::pty_child_env().contains(&("HCOM_LAUNCHED".to_string(), "1".to_string())));
+    }
+
+    #[test]
+    fn test_pty_child_env_forwards_colorterm() {
+        unsafe { std::env::set_var("COLORTERM", "truecolor") };
+        let env = super::pty_child_env();
+        unsafe { std::env::remove_var("COLORTERM") };
+        assert!(env.contains(&("COLORTERM".to_string(), "truecolor".to_string())));
+
+        // The runner strips COLORTERM but keeps HCOM_*; the captured value
+        // must still reach an unmanaged PTY child.
+        unsafe { std::env::set_var("HCOM_COLORTERM", "24bit") };
+        let env = super::pty_child_env();
+        unsafe { std::env::remove_var("HCOM_COLORTERM") };
+        assert!(env.contains(&("COLORTERM".to_string(), "24bit".to_string())));
+
+        // A real pane's own declaration wins over the stale capture.
+        unsafe {
+            std::env::set_var("COLORTERM", "truecolor");
+            std::env::set_var("HCOM_COLORTERM", "24bit");
+        };
+        let env = super::pty_child_env();
+        unsafe {
+            std::env::remove_var("COLORTERM");
+            std::env::remove_var("HCOM_COLORTERM");
+        };
+        assert!(env.contains(&("COLORTERM".to_string(), "truecolor".to_string())));
+
+        let env = super::pty_child_env();
+        assert!(!env.iter().any(|(k, _)| k == "COLORTERM"));
     }
 }
